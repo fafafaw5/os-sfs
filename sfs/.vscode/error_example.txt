@@ -1,0 +1,576 @@
+//根据观察发现每个函数的参数都包含文件路径，因此有必要写一个函数：功能为根据文件路径找到所对应的块号
+//如果成功找到对应的文件或根目录则返回inode区的所在的块号 如果失败则返回-1
+// long path_get_inode(const char*path)
+// {   
+//     //打开磁盘
+//     FILE *file = fopen("/home/lei/Desktop/libfuse-master/sfs/filesystem", "r+");
+//     //判断是否打开成功
+//     if (file==NULL)
+//     {
+//         //打开失败
+//         printf("open file fail!\n");
+//         return -1;
+//     }
+//     printf("open file success!\n");
+//     //读出超级块
+//     struct sb *super_block=malloc(sizeof(struct sb));
+//     fread(super_block,sizeof(struct sb),1,file);
+//     //如果是根目录,返回所对应的块号
+//     if (strcmp(path,"/")==0)
+//        {
+//         //释放内存
+//         free(super_block);
+//         return super_block->first_inode;
+//        }
+//     //把文件指针移动到512位置处
+//     if (fseek(file,512,SEEK_SET)!=0)
+//     {   
+//         //如果移动失败打印出失败信息
+//         printf("move seek fail at 512!\n");
+//         return 0;
+//     }
+//     //如果移动成功打印出成功信息
+//     printf("move seek success at 512!\n");
+//     //读出inode位图
+//     int * inodeBitmap=malloc(sizeof(int)*128);
+//     fread(inodeBitmap,sizeof(int)*128,1,file);
+//     //由于目录也是特殊的文件，为了方便下面统称为文件
+//     //然后判断该文件是否存在，用打开的方式判断
+//     FILE *file1=fopen(path,"r+");
+//     //如果file为空值，则说明并没有这个文件
+//     if (file1==NULL)
+//         return -1;
+//     //关闭文件
+//     fclose(file1);
+//     //否则继续往下查找
+//     //将path复制一份
+//     char *filepath=malloc(strlen(path)+1);
+//     strcpy(filepath,path);
+//     //为了便于理解，这里假设path的路径为 /home/lei 我们已经排除了根目录和不存在文件的情况
+//     //那么我们就要找到第二个下划线的位置 并保留除下划线之后的字符串
+//     char *temp=malloc(strlen(filepath)+1);
+//     char *temp1;
+//     //切一次来判断是否为文件名 
+//     temp1=strtok(filepath,"/");
+//     while (temp1!=NULL)
+//     {
+//         strcpy(temp,temp1);
+//         temp1=strtok(NULL,"/");
+//     }
+//     //此时temp就是文件名，首先判断是否有扩展名
+//     int is_extension=0;
+//     char *temp2=strchr(temp,'.');
+//     //如果temp2为NULL说明找不到‘.’，此时文件名没有扩展名，否则就有扩展名
+//     if (temp2!=NULL)
+//         is_extension=1;
+//     //如果有扩展名的话
+//     if (is_extension==1)
+//     {   
+//         //先对temp分割得到文件名和扩展名
+//         char*filename=malloc(strlen(temp)+1);
+//         char*fextension=malloc(strlen(temp+1));
+//         //定义一个标志位利于切割
+//         int flag=0;
+//         //定义两个下标
+//         int fnIndex=0;
+//         int feIndex=0;
+//         for (int i=0;i<strlen(temp);++i)
+//         {   
+//             if (temp[i]=='.')
+//                 {
+//                     flag=1;
+//                     continue;
+//                 }
+//             if (flag==0)
+//                 filename[fnIndex++]=temp[i];
+//             else
+//                 fextension[feIndex++]=temp[i];
+//         }
+//         filename[fnIndex] ='\0';
+//         fextension[feIndex]='\0';
+//         //定义开始查找位图的下标,位数
+//         int *begin=malloc(sizeof(int));
+//         *begin=0;
+//         int *bit=malloc(sizeof(int));
+//         *bit=0;
+//         int inode=0;
+//         while(1)
+//         {   
+//             //inode所在的块号等于相对块号加上Inode区起始块号
+//             inode=findInode(begin,bit,inodeBitmap)+super_block->first_inode;
+//             //把文件指针移动到block_size*inode位置处 即512*inode
+//              if (fseek(file,block_size*inode,SEEK_SET)!=0)
+//             {   
+//             //如果移动失败打印出失败信息
+//             printf("move seek fail at %d!\n",block_size*inode);
+//             return 0;
+//             }
+//              //如果移动成功打印出成功信息
+//             printf("move seek success at %d!\n",block_size*inode);
+//             //读出该inode
+//             struct inode *Inode=malloc(sizeof(struct inode));
+//             fread(Inode,sizeof(struct inode),1,file);
+//             //根据Indoe结构中的addr找到数据块所在的块号 其中addr[0]-addr[3]是直接地址，addr[4]是一次间接，addr[5]是二次间接，addr[6]是三次间接。
+//             //如果是直接地址
+//             if (Inode->addr[0]!=0)
+//             {
+//                 //定义一个暂时的数据块
+//                 struct Data_block *dataBlock=malloc(sizeof(struct Data_block));
+//                 //定义总地址
+//                 int address=Inode->addr[0]+Inode->addr[1]+Inode->addr[2]+Inode->addr[3]+super_block->first_blk;
+//                 //把文件指针移动到block_size*address位置处 
+//                 if (fseek(file,block_size*address,SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*address);
+//                 return 0;
+//                 }
+//                 //把数据块的内容读出来
+//                 fread(dataBlock,sizeof(struct Data_block),1,file);
+//                 //将数据块中的文件名和之前得到的文件名进行对比,如果两个都相等的话
+//                 if (strcmp(filename,dataBlock->filename)==0&&strcmp(fextension,dataBlock->extension)==0)
+//                     {
+//                         //释放内存
+//                         free(dataBlock);
+//                         free(super_block);
+//                         free(inodeBitmap);
+//                         free(filename);
+//                         free(fextension);
+//                         free(temp);
+//                         free(begin);
+//                         free(bit);
+//                         free(Inode);
+//                         //关闭文件
+//                         fclose(file);
+//                         //返回inode块号（绝对块号）
+//                         return inode;
+//                     }
+//                 //否则继续进入循环，直到找到文件名和扩展名都相等的数据块
+//             }
+//             //如果是一次间接地址 
+//             else if (Inode->addr[4]!=0)
+//             {
+//                 //定义一个暂时的inode结构体
+//                 struct inode *Inode1=malloc(sizeof(struct inode));
+//                 //定义一个暂时的数据块
+//                 struct Data_block *dataBlock=malloc(sizeof(struct Data_block));
+//                 //把文件指针移动到block_size*Inode->addr[4]+super_block->first_blk位置处 
+//                 if (fseek(file,block_size*(Inode->addr[4]+super_block->first_blk),SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*Inode->addr[4]);
+//                 return 0;
+//                 }
+//                 //读出该inode,存到Inode1中
+//                 fread(Inode1,sizeof(struct inode),1,file);
+//                 //此时该inode中的addr保存的是数据块的块号
+//                 //定义总地址
+//                 int address=Inode1->addr[0]+Inode1->addr[1]+Inode1->addr[2]+Inode1->addr[3]+super_block->first_blk;
+//                 //把文件指针移动到block_size*address位置处 
+//                 if (fseek(file,block_size*address,SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*address);
+//                 return 0;
+//                 }
+//                 //把数据块的内容读出来
+//                 fread(dataBlock,sizeof(struct Data_block),1,file);
+//                 //将数据块中的文件名和之前得到的文件名进行对比,如果两个都相等的话
+//                 if (strcmp(filename,dataBlock->filename)==0&&strcmp(fextension,dataBlock->extension)==0)
+//                     {
+//                         //释放内存
+//                         free(dataBlock);
+//                         free(super_block);
+//                         free(inodeBitmap);
+//                         free(filename);
+//                         free(fextension);
+//                         free(temp);
+//                         free(begin);
+//                         free(bit);
+//                         free(Inode1);
+//                         free(Inode);
+//                         //关闭文件
+//                         fclose(file);
+//                         //返回inode块号（绝对块号）
+//                         return inode;
+//                     }
+//                 //否则继续进入循环，直到找到文件名和扩展名都相等的数据块
+//             }
+//             //如果是二次间接地址
+//             else if (Inode->addr[5]!=0)
+//             {
+//                 //定义一个暂时的inode结构体
+//                 struct inode * Inode2=malloc(sizeof(struct inode));
+//                 //把文件指针移动到block_size*Inode->addr[5]位置处 
+//                 if (fseek(file,block_size*Inode->addr[5],SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*Inode->addr[5]);
+//                 return 0;
+//                 }
+//                 //读出该inode
+//                 fread(Inode2,sizeof(struct inode),1,file);
+//                 //定义一个暂时的inode结构体
+//                 struct inode *Inode1=malloc(sizeof(struct inode));
+//                 //定义一个暂时的数据块
+//                 struct Data_block *dataBlock=malloc(sizeof(struct Data_block));
+//                 //把文件指针移动到block_size*Inode2->addr[4]位置处 
+//                 if (fseek(file,block_size*Inode2->addr[4],SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*Inode2->addr[4]);
+//                 return 0;
+//                 }
+//                 //读出该inode
+//                 fread(Inode1,sizeof(struct inode),1,file);
+//                 //此时该inode中的addr保存的是数据块的块号
+//                 //定义总地址
+//                 int address=Inode1->addr[0]+Inode1->addr[1]+Inode1->addr[2]+Inode1->addr[3];
+//                 //把文件指针移动到block_size*address位置处 
+//                 if (fseek(file,block_size*address,SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*address);
+//                 return 0;
+//                 }
+//                 //把数据块的内容读出来
+//                 fread(dataBlock,sizeof(struct Data_block),1,file);
+//                 //将数据块中的文件名和之前得到的文件名进行对比,如果两个都相等的话
+//                 if (strcmp(filename,dataBlock->filename)==0&&strcmp(fextension,dataBlock->extension)==0)
+//                     {
+//                         //释放内存
+//                         free(dataBlock);
+//                         free(super_block);
+//                         free(inodeBitmap);
+//                         free(filename);
+//                         free(fextension);
+//                         free(temp);
+//                         free(begin);
+//                         free(bit);
+//                         free(Inode);
+//                         free(Inode1);
+//                         free(Inode2);
+//                         //关闭文件
+//                         fclose(file);
+//                         //返回inode块号（绝对块号）
+//                         return inode;
+//                     }
+//                 //否则继续进入循环，直到找到文件名和扩展名都相等的数据块
+//             }
+//             //如果是三次间接地址
+//             else if (Inode->addr[6]!=0)
+//             {
+//                 //定义一个暂时的inode结构体
+//                 struct inode*Inode3=malloc(sizeof(struct inode));
+//                 //把文件指针移动到block_size*Inode->addr[6]位置处 
+//                 if (fseek(file,block_size*Inode->addr[6],SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*Inode->addr[6]);
+//                 return 0;
+//                 }
+//                 //读出该inode
+//                 fread(Inode3,sizeof(struct inode),1,file);
+//                 //定义一个暂时的inode结构体
+//                 struct inode * Inode2=malloc(sizeof(struct inode));
+//                 //把文件指针移动到block_size*Inode->addr[5]位置处 
+//                 if (fseek(file,block_size*Inode3->addr[5],SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*Inode3->addr[5]);
+//                 return 0;
+//                 }
+//                 //读出该inode
+//                 fread(Inode2,sizeof(struct inode),1,file);
+//                 //定义一个暂时的inode结构体
+//                 struct inode *Inode1=malloc(sizeof(struct inode));
+//                 //定义一个暂时的数据块
+//                 struct Data_block *dataBlock=malloc(sizeof(struct Data_block));
+//                 //把文件指针移动到block_size*Inode2->addr[4]位置处 
+//                 if (fseek(file,block_size*Inode2->addr[4],SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*Inode2->addr[4]);
+//                 return 0;
+//                 }
+//                 //读出该inode
+//                 fread(Inode1,sizeof(struct inode),1,file);
+//                 //此时该inode中的addr保存的是数据块的块号
+//                 //定义总地址
+//                 int address=Inode1->addr[0]+Inode1->addr[1]+Inode1->addr[2]+Inode1->addr[3];
+//                 //把文件指针移动到block_size*address位置处 
+//                 if (fseek(file,block_size*address,SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*address);
+//                 return 0;
+//                 }
+//                 //把数据块的内容读出来
+//                 fread(dataBlock,sizeof(struct Data_block),1,file);
+//                 //将数据块中的文件名和之前得到的文件名进行对比,如果两个都相等的话
+//                 if (strcmp(filename,dataBlock->filename)==0&&strcmp(fextension,dataBlock->extension)==0)
+//                     {
+//                         //释放内存
+//                         free(dataBlock);
+//                         free(super_block);
+//                         free(inodeBitmap);
+//                         free(filename);
+//                         free(fextension);
+//                         free(temp);
+//                         free(begin);
+//                         free(bit);
+//                         free(Inode);
+//                         free(Inode1);
+//                         free(Inode2);
+//                         free(Inode3);
+//                         //关闭文件
+//                         fclose(file);
+//                         //返回inode块号（绝对块号）
+//                         return inode;
+//                     }
+//                 //否则继续进入循环，直到找到文件名和扩展名都相等的数据块
+//             }
+//         }
+//     }
+//     //如果没有扩展名
+//     else
+//     {
+//         //定义开始查找位图的下标,位数
+//         int *begin=malloc(sizeof(int));
+//         *begin=0;
+//         int *bit=malloc(sizeof(int));
+//         *bit=0;
+//         int inode=0;
+//         while(1)
+//         {   
+//             //inode所在的块号等于相对块号加上Inode区起始块号
+//             inode=findInode(begin,bit,inodeBitmap)+super_block->first_inode;
+//             //把文件指针移动到block_size*inode位置处 即512*inode
+//              if (fseek(file,block_size*inode,SEEK_SET)!=0)
+//             {   
+//             //如果移动失败打印出失败信息
+//             printf("move seek fail at %d!\n",block_size*inode);
+//             return 0;
+//             }
+//              //如果移动成功打印出成功信息
+//             printf("move seek success at %d!\n",block_size*inode);
+//             //读出该inode
+//             struct inode *Inode=malloc(sizeof(struct inode));
+//             fread(Inode,sizeof(struct inode),1,file);
+//             //根据Indoe结构中的addr找到数据块所在的块号 其中addr[0]-addr[3]是直接地址，addr[4]是一次间接，addr[5]是二次间接，addr[6]是三次间接。
+//             //如果是直接地址
+//             if (Inode->addr[0]!=0)
+//             {
+//                 //定义一个暂时的数据块
+//                 struct Data_block *dataBlock=malloc(sizeof(struct Data_block));
+//                 //定义总地址
+//                 int address=Inode->addr[0]+Inode->addr[1]+Inode->addr[2]+Inode->addr[3];
+//                 //把文件指针移动到block_size*address位置处 
+//                 if (fseek(file,block_size*address,SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*address);
+//                 return 0;
+//                 }
+//                 //把数据块的内容读出来
+//                 fread(dataBlock,sizeof(struct Data_block),1,file);
+//                 //将数据块中的文件名和之前得到的文件名进行对比,如果两个都相等的话
+//                 if (strcmp(temp,dataBlock->filename)==0)
+//                     {
+//                         //释放内存
+//                         free(dataBlock);
+//                         free(super_block);
+//                         free(inodeBitmap);
+//                         free(temp);
+//                         free(begin);
+//                         free(bit);
+//                         free(Inode);
+//                         //关闭文件
+//                         fclose(file);
+//                         //返回inode块号（绝对块号）
+//                         return inode;
+//                     }
+//                 //否则继续进入循环，直到找到文件名和扩展名都相等的数据块
+//             }
+//             //如果是一次间接地址 
+//             else if (Inode->addr[4]!=0)
+//             {
+//                 //定义一个暂时的inode结构体
+//                 struct inode *Inode1=malloc(sizeof(struct inode));
+//                 //定义一个暂时的数据块
+//                 struct Data_block *dataBlock=malloc(sizeof(struct Data_block));
+//                 //把文件指针移动到block_size*Inode->addr[4]位置处 
+//                 if (fseek(file,block_size*Inode->addr[4],SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*Inode->addr[4]);
+//                 return 0;
+//                 }
+//                 //读出该inode,存到Inode1中
+//                 fread(Inode1,sizeof(struct inode),1,file);
+//                 //此时该inode中的addr保存的是数据块的块号
+//                 //定义总地址
+//                 int address=Inode1->addr[0]+Inode1->addr[1]+Inode1->addr[2]+Inode1->addr[3];
+//                 //把文件指针移动到block_size*address位置处 
+//                 if (fseek(file,block_size*address,SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*address);
+//                 return 0;
+//                 }
+//                 //把数据块的内容读出来
+//                 fread(dataBlock,sizeof(struct Data_block),1,file);
+//                 //将数据块中的文件名和之前得到的文件名进行对比,如果两个都相等的话
+//                 if (strcmp(temp,dataBlock->filename)==0)
+//                     {
+//                         //释放内存
+//                         free(dataBlock);
+//                         free(super_block);
+//                         free(inodeBitmap);
+//                         free(temp);
+//                         free(begin);
+//                         free(bit);
+//                         free(Inode1);
+//                         free(Inode);
+//                         //关闭文件
+//                         fclose(file);
+//                         //返回inode块号（绝对块号）
+//                         return inode;
+//                     }
+//                 //否则继续进入循环，直到找到文件名和扩展名都相等的数据块
+//             }
+//             //如果是二次间接地址
+//             else if (Inode->addr[5]!=0)
+//             {
+//                 //定义一个暂时的inode结构体
+//                 struct inode * Inode2=malloc(sizeof(struct inode));
+//                 //把文件指针移动到block_size*Inode->addr[5]位置处 
+//                 if (fseek(file,block_size*Inode->addr[5],SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*Inode->addr[5]);
+//                 return 0;
+//                 }
+//                 //读出该inode
+//                 fread(Inode2,sizeof(struct inode),1,file);
+//                 //定义一个暂时的inode结构体
+//                 struct inode *Inode1=malloc(sizeof(struct inode));
+//                 //定义一个暂时的数据块
+//                 struct Data_block *dataBlock=malloc(sizeof(struct Data_block));
+//                 //把文件指针移动到block_size*Inode2->addr[4]位置处 
+//                 if (fseek(file,block_size*Inode2->addr[4],SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*Inode2->addr[4]);
+//                 return 0;
+//                 }
+//                 //读出该inode
+//                 fread(Inode1,sizeof(struct inode),1,file);
+//                 //此时该inode中的addr保存的是数据块的块号
+//                 //定义总地址
+//                 int address=Inode1->addr[0]+Inode1->addr[1]+Inode1->addr[2]+Inode1->addr[3];
+//                 //把文件指针移动到block_size*address位置处 
+//                 if (fseek(file,block_size*address,SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*address);
+//                 return 0;
+//                 }
+//                 //把数据块的内容读出来
+//                 fread(dataBlock,sizeof(struct Data_block),1,file);
+//                 //将数据块中的文件名和之前得到的文件名进行对比,如果两个都相等的话
+//                 if (strcmp(temp,dataBlock->filename)==0)
+//                     {
+//                         //释放内存
+//                         free(dataBlock);
+//                         free(super_block);
+//                         free(inodeBitmap);
+//                         free(temp);
+//                         free(begin);
+//                         free(bit);
+//                         free(Inode);
+//                         free(Inode1);
+//                         free(Inode2);
+//                         //关闭文件
+//                         fclose(file);
+//                         //返回inode块号（绝对块号）
+//                         return inode;
+//                     }
+//                 //否则继续进入循环，直到找到文件名和扩展名都相等的数据块
+//             }
+//             //如果是三次间接地址
+//             else if (Inode->addr[6]!=0)
+//             {
+//                 //定义一个暂时的inode结构体
+//                 struct inode*Inode3=malloc(sizeof(struct inode));
+//                 //把文件指针移动到block_size*Inode->addr[6]位置处 
+//                 if (fseek(file,block_size*Inode->addr[6],SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*Inode->addr[6]);
+//                 return 0;
+//                 }
+//                 //读出该inode
+//                 fread(Inode3,sizeof(struct inode),1,file);
+//                 //定义一个暂时的inode结构体
+//                 struct inode * Inode2=malloc(sizeof(struct inode));
+//                 //把文件指针移动到block_size*Inode->addr[5]位置处 
+//                 if (fseek(file,block_size*Inode3->addr[5],SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*Inode3->addr[5]);
+//                 return 0;
+//                 }
+//                 //读出该inode
+//                 fread(Inode2,sizeof(struct inode),1,file);
+//                 //定义一个暂时的inode结构体
+//                 struct inode *Inode1=malloc(sizeof(struct inode));
+//                 //定义一个暂时的数据块
+//                 struct Data_block *dataBlock=malloc(sizeof(struct Data_block));
+//                 //把文件指针移动到block_size*Inode2->addr[4]位置处 
+//                 if (fseek(file,block_size*Inode2->addr[4],SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*Inode2->addr[4]);
+//                 return 0;
+//                 }
+//                 //读出该inode
+//                 fread(Inode1,sizeof(struct inode),1,file);
+//                 //此时该inode中的addr保存的是数据块的块号
+//                 //定义总地址
+//                 int address=Inode1->addr[0]+Inode1->addr[1]+Inode1->addr[2]+Inode1->addr[3];
+//                 //把文件指针移动到block_size*address位置处 
+//                 if (fseek(file,block_size*address,SEEK_SET)!=0)
+//                 {   
+//                 //如果移动失败打印出失败信息
+//                 printf("move seek fail at %d!\n",block_size*address);
+//                 return 0;
+//                 }
+//                 //把数据块的内容读出来
+//                 fread(dataBlock,sizeof(struct Data_block),1,file);
+//                 //将数据块中的文件名和之前得到的文件名进行对比,如果两个都相等的话
+//                 if (strcmp(temp,dataBlock->filename)==0)
+//                     {
+//                         //释放内存
+//                         free(dataBlock);
+//                         free(super_block);
+//                         free(inodeBitmap);
+//                         free(temp);
+//                         free(begin);
+//                         free(bit);
+//                         free(Inode);
+//                         free(Inode1);
+//                         free(Inode2);
+//                         free(Inode3);
+//                         //关闭文件
+//                         fclose(file);
+//                         //返回inode块号（绝对块号）
+//                         return inode;
+//                     }
+//                 //否则继续进入循环，直到找到文件名和扩展名都相等的数据块
+//             }
+//         }
+//     }
+//     //关闭文件
+//     fclose(file);
+// }
